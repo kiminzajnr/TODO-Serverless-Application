@@ -7,6 +7,8 @@ plugins:
   - serverless-webpack
   - serverless-iam-roles-per-function
   - serverless-plugin-tracing
+  - serverless-reqvalidator-plugin
+  - serverless-aws-documentation
 
 provider:
   name: aws
@@ -43,14 +45,25 @@ provider:
             - xray:PutTraceSegments
           Resource: "*"
 
+custom:
+  documentation:
+    api:
+      info:
+        version: v1.0.0
+        title: Todos App
+        description: Serverless application for todos monitoring
+    models:
+      - name: CreateTodoRequest
+        contentType: application/json
+        schema: ${file(models/create-todo-model.json)}
 
 functions:
-  # hello:
-  #   handler: handler.hello
-  #   events:
-  #     - httpApi:
-  #         path: /
-  #         method: get
+  hello:
+    handler: handler.hello
+    events:
+      - httpApi:
+          path: /
+          method: get
 
   Auth:
     handler: src/lambda/auth/auth0Authorizer.handler
@@ -58,14 +71,30 @@ functions:
   # TODO: Configure this function - 
   # Provide iamRoleStatements property for performing Actions on DynamoDB
 
-  # GetTodos:
-  #   handler: src/lambda/http/getTodos.handler
-  #   events:
-  #     - http:
-  #         method: get
-  #         path: todos
-  #         cors: true
-  #         authorizer: Auth
+  GetTodos:
+    handler: src/lambda/http/getTodos.handler
+    events:
+      - http:
+          method: get
+          path: todos
+          cors: true
+          authorizer: Auth
+
+    iamRoleStatementsName: ${self:provider.environment.PROJECT_NAME}-get-todo-role-${self:provider.stage}
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:Query
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+      # - Effect: Allow
+      #   Action:
+      #     - dynamodb:Query
+      #   Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}/index/$
+      - Effect: Allow
+        Action:
+          - xray:PutTraceSegments
+        Resource:
+          - '*'
 
   # TODO: Configure this function - 
   # Provide iamRoleStatements property. Decide the Actions and AWS Resource. 
@@ -79,10 +108,13 @@ functions:
           method: post
           path: todos
           cors: true
-  #         authorizer: Auth
-  #         request:
-  #           schemas:
-  #             application/json: ${file(models/create-todo-model.json)}
+          authorizer: Auth
+          reqValidatorName: RequestBodyValidator
+          documentation:
+            summary: Create a new todo task
+            description: Create a todo task
+            requestModels:
+              'application/json': CreateTodoRequest
 
     iamRoleStatementsName: ${self:provider.environment.PROJECT_NAME}-create-todo-role-${self:provider.stage}
     iamRoleStatements:
@@ -153,6 +185,15 @@ resources:
         ResponseType: DEFAULT_5XX
         RestApiId:
           Ref: 'ApiGatewayRestApi'
+          
+    RequestBodyValidator:
+      Type: AWS::ApiGateway::RequestValidator
+      Properties:
+        Name: 'request-body-validator'
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        ValidateRequestBody: true
+        ValidateRequestParameters: false
     
     # TODO: Create a DynamoDB table with local secondary index and a composite key
     
@@ -189,7 +230,7 @@ resources:
     AttachmentsBucket:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: ${self:provider.environment.ATTACHMENT_S3_BUCKET}
+        BucketName: erick-kiminza-05-${self:provider.environment.ATTACHMENT_S3_BUCKET}
         CorsConfiguration:
           CorsRules:
             -
@@ -217,11 +258,11 @@ resources:
       Properties:
         PolicyDocument:
           Id: MyPolicy
-          Version: "2023-02-17"
+          Version: '2012-10-17'
           Statement:
             - Sid: PublicReadForGetBucketObjects
               Effect: Allow
               Principal: '*'
               Action: 's3:GetObject'
-              Resource: 'arn:aws:s3:::${self:provider.environment.ATTACHMENT_S3_BUCKET}/*'
+              Resource: 'arn:aws:s3:::erick-kiminza-05-${self:provider.environment.ATTACHMENT_S3_BUCKET}/*'
         Bucket: !Ref AttachmentsBucket
